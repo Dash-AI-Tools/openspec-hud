@@ -1,0 +1,9 @@
+{
+  "name": "openspec-hud",
+  "version": "0.3.0",
+  "description": "OpenSpec HUD: current skill and flow step, running agents, current/next task, remaining tasks, context bar and usage",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "davidcp90"
+  }
+}
