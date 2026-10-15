@@ -2,39 +2,17 @@
 
 A Claude Code mod that shows an [OpenSpec](https://github.com/Fission-AI/OpenSpec) HUD in a side panel next to the transcript:
 
-```
- ┌─ transcript ───────────────────────┐ ┌─ OpenSpec ──────────────────────┐
- │                                    │ │ ◆ OpenSpec HUD                  │
- │  ● Reading tasks.md…               │ │                                 │
- │                                    │ │ CHANGE                          │
- │                                    │ │ add-dark-mode                   │
- │                                    │ │                                 │
- │                                    │ │ FLOW                            │
- │                                    │ │ ● apply                         │
- │                                    │ │ skill openspec-apply-change     │
- │                                    │ │                                 │
- │                                    │ │ TASKS                           │
- │                                    │ │ ██████████░░░░░░░░░░░░░░        │
- │                                    │ │ 2/5 done  ·  3 left             │
- │                                    │ │ ▶ now                           │
- │                                    │ │ 2.1 Implement parser            │
- │                                    │ │ ○ next                          │
- │                                    │ │ 2.2 Wire the HUD                │
- │                                    │ │                                 │
- │                                    │ │ ⚙ AGENTS                        │
- │                                    │ │ Explore · running               │
- │                                    │ │ Find theme code                 │
- │                                    │ │                                 │
- │                                    │ │ ⇄ MCP                           │
- │                                    │ │ github › get_me                 │
- │                                    │ │                                 │
- │                                    │ │ CONTEXT                         │
- │                                    │ │ ██████████░░░░░░░░░░░░░░ 42%    │
- │                                    │ │ 84k / 200k tokens               │
- │                                    │ │ 5h    ████░░░░░░░░░░░░░ 23%     │
- │ > _                                │ │ cost $1.50                      │
- └────────────────────────────────────┘ └─────────────────────────────────┘
-```
+<p align="center">
+  <img src="images/vertical.png" alt="OpenSpec HUD docked as a side panel next to the transcript" width="900">
+</p>
+
+*Side panel (fullscreen UI, 110+ columns).*
+
+<p align="center">
+  <img src="images/horizontal.png" alt="OpenSpec HUD inline above the prompt" width="700">
+</p>
+
+*Inline bar above the prompt (classic UI or narrow terminal).*
 
 The HUD is a side panel docked to the right of the transcript, laid out top to bottom. Sections with nothing to show (no tasks, no running agent or MCP call) are left out.
 
@@ -50,6 +28,13 @@ The HUD is a side panel docked to the right of the transcript, laid out top to b
 Each kind of info has its own theme color: change name, current flow step (yellow), skill, task counts (done green, remaining yellow), current/next task, agent type and status, MCP server and tool, and context/rate-limit levels (green under 60%, yellow under 85%, red above). Colors follow the active Claude Code theme.
 
 `/openspec-hud` opens or closes the panel. Closing it with its close mark keeps it closed in later sessions until `/openspec-hud` opens it again.
+
+## Quick start
+
+1. Install the plugin (below).
+2. Open a Claude Code session in a repo that uses OpenSpec, and run an OpenSpec command such as `/opsx:propose <idea>`.
+3. The HUD follows along: flow step, tasks, context and usage update as you work.
+4. `/openspec-hud` toggles the panel.
 
 ## Install
 
