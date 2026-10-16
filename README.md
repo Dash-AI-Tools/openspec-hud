@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="logos/lockup-dark.svg">
+    <img src="logos/lockup-light.svg" alt="openspec-hud" height="48">
+  </picture>
+</p>
+
 # openspec-hud
 
 A Claude Code mod that shows an [OpenSpec](https://github.com/Fission-AI/OpenSpec) HUD in a side panel next to the transcript:
@@ -38,27 +45,21 @@ Each kind of info has its own theme color: change name, current flow step (yello
 
 ## Install
 
-At the prompt of a Claude Code terminal session:
+Clone the repo and load it as a plugin directory:
 
 ```
-/plugin install openspec-hud --marketplace davidcp90/mods
+git clone git@github.com:Dash-AI-Tools/openspec-hud.git
+claude --plugin-dir ./openspec-hud
 ```
 
-Answer `y` to add the marketplace, then pick a scope (**User** for every session, **Project** for this repository only). The panel opens right away.
+The panel opens right away. To load it in every session, add the clone path to `CLAUDE_CODE_PLUGIN_DIRS`.
 
-From a local clone instead:
-
-```
-git clone https://github.com/davidcp90/mods.git
-claude --plugin-dir ./mods/openspec-hud
-```
-
-To update an installed copy: `claude plugin update openspec-hud`, then `/reload-plugins`. See the [root README](../README.md#updating) for other install methods, uninstalling and `CLAUDE_CODE_PLUGIN_DIRS`.
+To update, `git pull` in the clone, then run `/reload-plugins` in your session.
 
 ## Develop
 
 ```
-claude plugin validate openspec-hud
-claude plugin test openspec-hud
-claude --plugin-dir ./openspec-hud
+claude plugin validate .
+claude plugin test .
+claude --plugin-dir .
 ```
