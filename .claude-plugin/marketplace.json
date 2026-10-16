@@ -1,0 +1,11 @@
+{
+  "name": "openspec-hud",
+  "owner": { "name": "davidcp90" },
+  "plugins": [
+    {
+      "name": "openspec-hud",
+      "source": "./",
+      "description": "OpenSpec HUD: current skill and flow step, running agents, current/next task, remaining tasks, context bar and usage"
+    }
+  ]
+}

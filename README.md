@@ -45,16 +45,22 @@ Each kind of info has its own theme color: change name, current flow step (yello
 
 ## Install
 
-Clone the repo and load it as a plugin directory:
+At the prompt of a Claude Code terminal session:
+
+```
+/plugin install openspec-hud --marketplace Dash-AI-Tools/openspec-hud
+```
+
+Answer `y` to add the marketplace, then pick a scope (**User** for every session, **Project** for this repository only). The panel opens right away.
+
+From a local clone instead:
 
 ```
 git clone git@github.com:Dash-AI-Tools/openspec-hud.git
 claude --plugin-dir ./openspec-hud
 ```
 
-The panel opens right away. To load it in every session, add the clone path to `CLAUDE_CODE_PLUGIN_DIRS`.
-
-To update, `git pull` in the clone, then run `/reload-plugins` in your session.
+To update an installed copy: `claude plugin update openspec-hud`, then `/reload-plugins`.
 
 ## Develop
 
