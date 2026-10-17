@@ -21,7 +21,7 @@ A Claude Code mod that shows an [OpenSpec](https://github.com/Fission-AI/OpenSpe
 
 *Inline bar above the prompt (classic UI or narrow terminal).*
 
-The HUD is a side panel docked to the right of the transcript, laid out top to bottom with no headings, in at most 10 rows (typically 8). Rows with nothing to show (no tasks, no running agent or MCP call) are left out.
+The HUD is a side panel docked to the right of the transcript, laid out top to bottom with no headings, in 8 to 10 rows (14 at most). Long text wraps instead of being cut off: the current and next task, the agent description and the MCP call each take up to 2 rows and end with `…` beyond that. In a wide enough pane short rows share a row (the change name next to its step and skill, and tokens and cost next to the rate limits); in a narrow pane they stack. Rows with nothing to show (no tasks, no running agent or MCP call) are left out.
 
 **Docking needs the fullscreen terminal UI** at 110+ columns: set `"tui": "fullscreen"` in `~/.claude/settings.json` (or pick it in `/config`). In the classic UI, or a narrower terminal, the panel opens inline above the prompt instead. Drag the panel edge to resize it; it opens 42 columns wide.
 

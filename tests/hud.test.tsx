@@ -309,3 +309,124 @@ test('Changes panel shows an empty state and refreshes counts with the scan', as
   expect(await ui.find({ type: 'Text', text: /3 left/ })).toBeUndefined()
   await ui.unmount()
 })
+
+const LONG_TASK = 'Refactor the authentication middleware to support rotating signing keys without downtime'
+const MEDIUM_TASK = 'Rotate signing keys without any downtime'
+const LONG_AGENT = 'Search the whole repository for every caller of the legacy authentication helper'
+const LONG_TOOL = 'mcp__github__search_pull_requests_and_issues_by_label_extensively'
+
+const rowTexts = async (ui: { findAll: (q: object) => Promise<{ text?: string; props?: { wrap?: string } }[]> }) =>
+  (await ui.findAll({ type: 'Text' })).filter(t => t.props?.wrap === 'truncate-end').map(t => t.text ?? '')
+
+async function populate($: any, on: any, tasks: string, agentDescriptions: string[] = []) {
+  fakeFs(on, { changes: { 'add-auth': { mtimeMs: 5, tasks } } })
+  on('skill.prompt', (_$: unknown, e: { text: string }) => ({ text: e.text }))
+  on('session.measure', (_$: unknown, e: { changed: unknown }) => ({ changed: e.changed }))
+  on('clock.now', () => ({ value: 0 }))
+  let n = 0
+  on('agent.spawn', () => ({ model: 'haiku', agentId: `a${(n += 1)}` }))
+  await $.skill.prompt({ skill: 'openspec-apply-change', text: '' })
+  await $.session.measure({
+    context: { tokens: 84000, window: 200000, percent: 42 },
+    rateLimits: [
+      { kind: 'five_hour', percentUsed: 23 },
+      { kind: 'seven_day', percentUsed: 8 },
+    ],
+    cost: { usd: 1.5 },
+    changed: ['context'],
+  })
+  for (const description of agentDescriptions) {
+    await $.agent.spawn({
+      tool_use_id: description,
+      prompt: 'look',
+      description,
+      subagentType: 'Explore',
+      provider: { plugin: 'engine', tier: 'core' },
+      parentModel: 'opus',
+      background: false,
+      fork: false,
+    })
+  }
+}
+
+test('long tasks wrap to two rows and end with an ellipsis past two', async ($, on) => {
+  await populate($, on, `- [ ] 1.1 ${LONG_TASK}\n- [ ] 1.2 ${MEDIUM_TASK}\n`)
+  const ui = await $.ui.mount({ ...at(35), surface: 'terminal' })
+  const rows = await rowTexts(ui)
+  const now = rows.findIndex(r => r.startsWith('▶ '))
+  expect(rows[now]).toBe('▶ 1.1 Refactor the authentication')
+  expect(rows[now + 1]).toMatch(/^ {2}.+…$/)
+  expect(rows[now + 2]).toMatch(/^○ /)
+  expect(rows[now + 3]).toMatch(/^ {2}.+/)
+  expect(rows[now + 3]).not.toMatch(/…$/)
+  expect(rows[now + 4]).toMatch(/^█|^░/)
+  await ui.unmount()
+})
+
+test('MCP and agent entries wrap to at most two rows', async ($, on) => {
+  let release = () => {}
+  let started = () => {}
+  const held = new Promise<void>(resolve => (release = resolve))
+  const running = new Promise<void>(resolve => (started = resolve))
+  on('tool.call', async () => {
+    started()
+    await held
+    return { result: 'ok' }
+  })
+  await populate($, on, TASKS, [LONG_AGENT, 'Check specs'])
+  const ui = await $.ui.mount({ ...at(35), surface: 'terminal' })
+  const call = $.tool.call({ tool: LONG_TOOL, tool_use_id: 'm1' } as never)
+  await running
+
+  const rows = await rowTexts(ui)
+  const agent = rows.findIndex(r => r.startsWith('⚙ '))
+  expect(rows[agent]).toMatch(/Explore · running \+1 · /)
+  expect(rows[agent + 1]).toMatch(/…$/)
+  const mcp = rows.findIndex(r => r.startsWith('⇄ '))
+  expect(mcp).toBe(agent + 2)
+  expect(rows[mcp + 1]).toMatch(/…$/)
+  expect(rows[mcp + 2]).toMatch(/^[█░]/)
+
+  release()
+  await call
+  await ui.unmount()
+})
+
+test('short rows pair side by side only in wide panes', async ($, on) => {
+  await populate($, on, TASKS)
+  const narrow = await $.ui.mount({ ...at(35), surface: 'terminal' })
+  const stacked = await rowTexts(narrow)
+  expect(stacked.length).toBe(8)
+  expect(stacked[0]).toBe('add-auth')
+  await narrow.unmount()
+
+  const wide = await $.ui.mount({ ...at(100), surface: 'terminal' })
+  const paired = await rowTexts(wide)
+  expect(paired.length).toBe(6)
+  expect(paired[0]).toMatch(/^add-auth {2}● apply · openspec-apply-change$/)
+  expect(paired[5]).toMatch(/^84k \/ 200k · \$1\.50 {2}5h 23% · 7d 8%$/)
+  await wide.unmount()
+})
+
+test('worst case stays within 14 rows', async ($, on) => {
+  let release = () => {}
+  let started = () => {}
+  const held = new Promise<void>(resolve => (release = resolve))
+  const running = new Promise<void>(resolve => (started = resolve))
+  on('tool.call', async () => {
+    started()
+    await held
+    return { result: 'ok' }
+  })
+  await populate($, on, `- [ ] 1.1 ${LONG_TASK}\n- [ ] 1.2 ${LONG_TASK}\n`, [LONG_AGENT, 'Check specs'])
+  const terminal = await $.ui.mount({ ...at(35), surface: 'terminal' })
+  const desktop = await $.ui.mount({ ...at(35), surface: 'desktop' })
+  const call = $.tool.call({ tool: LONG_TOOL, tool_use_id: 'm1' } as never)
+  await running
+  expect(await rowCount(terminal)).toBe(14)
+  expect(await rowCount(desktop)).toBe(14)
+  release()
+  await call
+  await terminal.unmount()
+  await desktop.unmount()
+})
