@@ -99,3 +99,37 @@ export function parseMcpTool(name: string): { server: string; tool: string } | n
   if (!server || !tool) return null
   return { server, tool }
 }
+
+/**
+ * Word-wraps `text` into at most `maxRows` rows of `width` columns (`firstWidth` for row 0),
+ * hard-breaking words longer than a row. Overflow ends the last row with `…`.
+ */
+export function wrapRows(text: string, width: number, maxRows: number, firstWidth = width): string[] {
+  const widthAt = (i: number) => Math.max(1, i === 0 ? firstWidth : width)
+  const rows: string[] = []
+  let row = ''
+  for (let word of text.split(/\s+/).filter(Boolean)) {
+    if (row && row.length + 1 + word.length > widthAt(rows.length)) {
+      rows.push(row)
+      row = ''
+    }
+    while (word.length > widthAt(rows.length)) {
+      const w = widthAt(rows.length)
+      rows.push(word.slice(0, w))
+      word = word.slice(w)
+    }
+    row = row ? `${row} ${word}` : word
+  }
+  if (row) rows.push(row)
+  if (rows.length <= maxRows) return rows
+  const kept = rows.slice(0, maxRows)
+  const last = kept[maxRows - 1] ?? ''
+  const w = widthAt(maxRows - 1)
+  kept[maxRows - 1] = (last.length >= w ? last.slice(0, w - 1) : last) + '…'
+  return kept
+}
+
+/** Whether two rows of the given text lengths fit on one row with a 2-column gap. */
+export function fitsSideBySide(lenA: number, lenB: number, width: number): boolean {
+  return lenA + 2 + lenB <= width
+}

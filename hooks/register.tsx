@@ -4,6 +4,7 @@ import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 import type { AgentRun, ChangeProgress, FlowStep, McpCall, UsageInfo } from '../types'
 import {
   bar,
+  fitsSideBySide,
   inferStep,
   isOpenSpecName,
   levelColor,
@@ -13,6 +14,7 @@ import {
   parseTasks,
   stepOf,
   tokens,
+  wrapRows,
 } from './openspec'
 
 const skillA = atom({ plugin: 'openspec-hud', key: 'skill' } as const, null)
@@ -30,7 +32,6 @@ const PANE = 'openspec-hud'
 const PANE_ARGS = { id: PANE, title: 'OpenSpec', columns: 42 } as const
 
 const C = {
-  brand: 'claude',
   change: 'suggestion',
   stepNow: 'warning',
   skill: 'autoAccept',
@@ -255,115 +256,119 @@ export const register: Register = on => {
     const percent = usage?.percent ?? 0
     const width = Math.max(16, e.props.bodyColumns)
     const barWidth = Math.max(8, width - 7)
+    const inner = width - 2
 
-    const heading = (label: string, color: string) => (
-      <Text bold color={color}>{label}</Text>
+    type Cell = { len: number; node: RenderChildren }
+    const line = (key: string, body: RenderChildren) => (
+      <Text key={key} wrap="truncate-end">{body}</Text>
     )
-    const line = (body: RenderChildren) => <Text wrap="truncate-end">{body}</Text>
-    const block = (key: string, children: RenderChildren[]) => (
-      <Box key={key} flexDirection="column" marginBottom={1}>
-        {children}
-      </Box>
-    )
-
-    const blocks: RenderChildren[] = []
-
-    blocks.push(
-      block('change', [
-        heading('CHANGE', C.label),
-        change ? (
-          line(<Text bold color={C.change}>{change.name}</Text>)
-        ) : (
-          line(<Text color={C.muted}>no active change</Text>)
-        ),
-      ]),
-    )
-
-    blocks.push(
-      block('flow', [
-        heading('FLOW', C.label),
+    /** `a` and `b` share one row when both fit, else they stack in order. */
+    const pair = (key: string, a: Cell, b?: Cell) =>
+      b && fitsSideBySide(a.len, b.len, inner)
+        ? [line(key, <Text>{a.node}{'  '}{b.node}</Text>)]
+        : [line(key, a.node), ...(b ? [line(`${key}-2`, b.node)] : [])]
+    /** Free text over up to 2 rows: `lead` opens row 0, continuation rows indent under the glyph. */
+    const wrapped = (key: string, lead: RenderChildren, leadLen: number, text: string, color: string) =>
+      wrapRows(text, inner - 2, 2, inner - leadLen).map((t, i) =>
         line(
-          step ? (
-            <Text bold color={C.stepNow}>● {step}</Text>
+          `${key}-${i}`,
+          i === 0 ? (
+            <Text>{lead}<Text color={color}>{t}</Text></Text>
           ) : (
-            <Text color={C.muted}>—</Text>
+            <Text color={color}>{`  ${t}`}</Text>
           ),
         ),
-        line(
-          <Text>
-            <Text color={C.muted}>skill </Text>
-            <Text bold color={C.skill}>{skill ?? '—'}</Text>
-          </Text>,
-        ),
-      ]),
-    )
+      )
+
+    const rows: RenderChildren[] = []
+
+    const changeCell: Cell = change
+      ? { len: change.name.length, node: <Text bold color={C.change}>{change.name}</Text> }
+      : { len: 16, node: <Text color={C.muted}>no active change</Text> }
+    const flowCell: Cell = {
+      len: (step ? 2 + step.length : 1) + 3 + (skill ?? '—').length,
+      node: (
+        <Text>
+          {step ? <Text bold color={C.stepNow}>● {step}</Text> : <Text color={C.muted}>—</Text>}
+          <Text color={C.sep}> · </Text>
+          <Text bold color={C.skill}>{skill ?? '—'}</Text>
+        </Text>
+      ),
+    }
+    rows.push(...pair('change', changeCell, flowCell))
 
     if (change && change.total > 0) {
       const left = change.total - change.done
-      blocks.push(
-        block('tasks', [
-          heading('TASKS', C.label),
-          line(<Text color={C.done}>{bar((change.done / change.total) * 100, barWidth)}</Text>),
-          line(
-            <Text>
-              <Text bold color={C.done}>{change.done}</Text>
-              <Text color={C.sep}>/</Text>
-              <Text color={C.total}>{change.total}</Text>
-              <Text color={C.muted}> done  ·  </Text>
-              <Text bold color={left === 0 ? C.done : C.remaining}>{left} left</Text>
-            </Text>,
-          ),
-          ...(change.current
-            ? [
-                <Text bold color={C.now}>▶ now</Text>,
-                <Text color={C.nowText}>{change.current}</Text>,
-              ]
-            : []),
-          ...(change.next
-            ? [
-                <Text color={C.next}>○ next</Text>,
-                <Text color={C.muted}>{change.next}</Text>,
-              ]
-            : []),
-        ]),
+      const counts = ` ${change.done}/${change.total} · ${left} left`
+      rows.push(
+        line(
+          'tasks',
+          <Text>
+            <Text color={C.done}>
+              {bar((change.done / change.total) * 100, Math.max(8, width - counts.length - 2))}
+            </Text>
+            <Text bold color={C.done}>{` ${change.done}`}</Text>
+            <Text color={C.sep}>/</Text>
+            <Text color={C.total}>{change.total}</Text>
+            <Text color={C.sep}> · </Text>
+            <Text bold color={left === 0 ? C.done : C.remaining}>{left} left</Text>
+          </Text>,
+        ),
       )
+      if (change.current) {
+        rows.push(...wrapped('now', <Text bold color={C.now}>▶ </Text>, 2, change.current, C.nowText))
+      }
+      if (change.next) {
+        rows.push(...wrapped('next', <Text color={C.next}>○ </Text>, 2, change.next, C.muted))
+      }
     }
 
-    if (agents.length > 0) {
-      blocks.push(
-        block(
+    const agent = agents[0]
+    if (agent) {
+      const extra = agents.length > 1 ? ` +${agents.length - 1}` : ''
+      const leadLen = 2 + agent.type.length + 3 + agent.status.length + extra.length + 3
+      rows.push(
+        ...wrapped(
           'agents',
-          [heading('⚙ AGENTS', C.agent)].concat(
-            agents.map(a => (
-              <Box key={`agent-${a.id}`} flexDirection="column">
-                {line(
-                  <Text>
-                    <Text bold color={C.agentType}>{a.type}</Text>
-                    <Text color={C.sep}> · </Text>
-                    <Text color={statusColor(a.status)}>{a.status}</Text>
-                  </Text>,
-                )}
-                {line(<Text color={C.nowText}>{a.description}</Text>)}
-              </Box>
-            )),
-          ),
+          <Text>
+            <Text bold color={C.agent}>⚙ </Text>
+            <Text bold color={C.agentType}>{agent.type}</Text>
+            <Text color={C.sep}> · </Text>
+            <Text color={statusColor(agent.status)}>{agent.status}</Text>
+            <Text color={C.muted}>{extra}</Text>
+            <Text color={C.sep}> · </Text>
+          </Text>,
+          leadLen,
+          agent.description,
+          C.nowText,
         ),
       )
     }
 
-    if (mcpCalls.length > 0) {
-      blocks.push(
-        block(
-          'mcp',
-          [heading('⇄ MCP', C.mcp)].concat(
-            mcpCalls.map(c =>
-              line(
-                <Text key={`mcp-${c.id}`}>
-                  <Text bold color={C.mcpServer}>{c.server}</Text>
-                  <Text color={C.sep}> › </Text>
-                  <Text color={C.mcpTool}>{c.tool}</Text>
-                </Text>,
-              ),
+    const call = mcpCalls[0]
+    if (call) {
+      const prefix = `${call.server} › `
+      const extra = mcpCalls.length > 1 ? ` +${mcpCalls.length - 1}` : ''
+      const mcpRows = wrapRows(`${prefix}${call.tool}${extra}`, inner - 2, 2)
+      mcpRows.forEach((t, i) =>
+        rows.push(
+          line(
+            `mcp-${i}`,
+            i === 0 ? (
+              <Text>
+                <Text bold color={C.mcp}>⇄ </Text>
+                {t.startsWith(prefix) ? (
+                  <Text>
+                    <Text bold color={C.mcpServer}>{call.server}</Text>
+                    <Text color={C.sep}> › </Text>
+                    <Text color={C.mcpTool}>{t.slice(prefix.length)}</Text>
+                  </Text>
+                ) : (
+                  <Text color={C.mcpTool}>{t}</Text>
+                )}
+              </Text>
+            ) : (
+              <Text color={C.mcpTool}>{`  ${t}`}</Text>
             ),
           ),
         ),
@@ -371,45 +376,56 @@ export const register: Register = on => {
     }
 
     if (usage) {
-      blocks.push(
-        block('usage', [
-          heading('CONTEXT', C.label),
-          line(
-            <Text>
-              <Text color={levelColor(percent)}>{bar(percent, barWidth)}</Text>
-              <Text bold color={levelColor(percent)}>{` ${percent}%`}</Text>
-            </Text>,
-          ),
-          line(<Text color={C.muted}>{`${tokens(usage.tokens ?? 0)} / ${tokens(usage.window)} tokens`}</Text>),
-          ...usage.rateLimits.map(r =>
-            line(
-              <Text>
-                <Text color={C.limit}>{limitLabel(r.kind).padEnd(6)}</Text>
-                <Text color={levelColor(r.percentUsed)}>{bar(r.percentUsed, barWidth - 6)}</Text>
-                <Text bold color={levelColor(r.percentUsed)}>{` ${r.percentUsed}%`}</Text>
-              </Text>,
-            ),
-          ),
-          ...(usage.costUsd !== undefined
-            ? [
-                line(
-                  <Text>
-                    <Text color={C.muted}>cost </Text>
-                    <Text bold color={C.cost}>${usage.costUsd.toFixed(2)}</Text>
-                  </Text>,
-                ),
-              ]
-            : []),
-        ]),
+      rows.push(
+        line(
+          'context',
+          <Text>
+            <Text color={levelColor(percent)}>{bar(percent, barWidth)}</Text>
+            <Text bold color={levelColor(percent)}>{` ${percent}%`}</Text>
+          </Text>,
+        ),
       )
+      const used = `${tokens(usage.tokens ?? 0)} / ${tokens(usage.window)}`
+      const cost = usage.costUsd !== undefined ? `$${usage.costUsd.toFixed(2)}` : undefined
+      const tokensCell: Cell = {
+        len: used.length + (cost ? 3 + cost.length : 0),
+        node: (
+          <Text>
+            <Text color={C.muted}>{used}</Text>
+            {cost ? (
+              <Text>
+                <Text color={C.sep}> · </Text>
+                <Text bold color={C.cost}>{cost}</Text>
+              </Text>
+            ) : null}
+          </Text>
+        ),
+      }
+      const limitsCell: Cell | undefined =
+        usage.rateLimits.length > 0
+          ? {
+              len: usage.rateLimits
+                .map(r => `${limitLabel(r.kind)} ${r.percentUsed}%`)
+                .join(' · ').length,
+              node: (
+                <Text>
+                  {usage.rateLimits.map((r, i) => (
+                    <Text key={r.kind}>
+                      {i > 0 ? <Text color={C.sep}> · </Text> : null}
+                      <Text color={C.limit}>{`${limitLabel(r.kind)} `}</Text>
+                      <Text bold color={levelColor(r.percentUsed)}>{`${r.percentUsed}%`}</Text>
+                    </Text>
+                  ))}
+                </Text>
+              ),
+            }
+          : undefined
+      rows.push(...pair('usage', tokensCell, limitsCell))
     }
 
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Box marginBottom={1}>
-          <Text bold color={C.brand}>◆ OpenSpec HUD</Text>
-        </Box>
-        {blocks}
+        {rows}
       </Box>
     )
   })

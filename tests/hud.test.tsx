@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { bar, inferStep, parseMcpTool, parseSlash, parseTasks, stepOf } from '../hooks/openspec'
+import { bar, fitsSideBySide, inferStep, parseMcpTool, parseSlash, parseTasks, stepOf, wrapRows } from '../hooks/openspec'
 
 const TASKS = `## 1. Setup
 - [x] 1.1 Create module
@@ -95,11 +95,13 @@ test('band shows skill, step, tasks, agents and context', async ($, on) => {
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
-    for (const text of [/OpenSpec HUD/, /^add-dark-mode$/, /● apply/, /openspec-apply-change/, /3 left/, /^2\.1 Implement parser$/, /next/, /^2\.2 Wire the HUD$/, /Explore/, /running/, /Find theme code/, /42%/, /84k \/ 200k/, /5h/, /\$1\.50/]) {
+    for (const text of [/^add-dark-mode$/, /● apply/, /openspec-apply-change/, /3 left/, /^2\.1 Implement parser$/, /^2\.2 Wire the HUD$/, /Explore/, /running/, /Find theme code/, /42%/, /84k \/ 200k/, /5h/, /\$1\.50/]) {
       expect(await ui.find({ type: 'Text', text })).toBeDefined()
     }
     const colorOf = async (text: RegExp) => (await ui.find({ type: 'Text', text }))?.props.color
-    expect(await colorOf(/^CHANGE$/)).toBe('subtle')
+    for (const gone of [/^CHANGE$/, /^FLOW$/, /^TASKS$/, /^CONTEXT$/, /OpenSpec HUD/]) {
+      expect(await ui.find({ type: 'Text', text: gone })).toBeUndefined()
+    }
     expect(await colorOf(/^running$/)).toBe('warning')
     expect(await colorOf(/^2\.1 Implement parser$/)).toBe('text')
     expect(await ui.find({ type: 'Text', text: /propose|verify|archive/ })).toBeUndefined()
@@ -107,6 +109,22 @@ test('band shows skill, step, tasks, agents and context', async ($, on) => {
     expect(await colorOf(/^ 42%$/)).toBe('success')
     await ui.unmount()
   }
+})
+
+test('wraps text to at most N rows with an ellipsis', async () => {
+  const text = 'write the wrapping helper now'
+  expect(wrapRows('short task', 20, 2)).toEqual(['short task'])
+  expect(wrapRows(text, 16, 3)).toEqual(['write the', 'wrapping helper', 'now'])
+  expect(wrapRows(text, 16, 2)).toEqual(['write the', 'wrapping helper…'])
+  expect(wrapRows('x'.repeat(10), 4, 3)).toEqual(['xxxx', 'xxxx', 'xx'])
+  expect(wrapRows('x'.repeat(10), 4, 2)).toEqual(['xxxx', 'xxx…'])
+  expect(wrapRows('ab cdefgh', 8, 2, 4)).toEqual(['ab', 'cdefgh'])
+})
+
+test('pairs rows only when both fit with a 2-column gap', async () => {
+  expect(fitsSideBySide(10, 8, 20)).toBe(true)
+  expect(fitsSideBySide(10, 9, 20)).toBe(false)
+  expect(fitsSideBySide(0, 0, 2)).toBe(true)
 })
 
 test('parses MCP tool names', async () => {
@@ -137,4 +155,78 @@ test('shows the MCP server and tool only while the call runs', async ($, on) => 
   await call
   expect(await ui.find({ type: 'Text', text: /github/ })).toBeUndefined()
   await ui.unmount()
+})
+
+const at = (bodyColumns: number) => ({ ...BAND, props: { ...BAND.props, bodyColumns } })
+
+const rowCount = async (ui: { findAll: (q: object) => Promise<{ props?: { wrap?: string } }[]> }) =>
+  (await ui.findAll({ type: 'Text' })).filter(t => t.props?.wrap === 'truncate-end').length
+
+test('body stays within 10 rows when fully populated and 8 when typical', async ($, on) => {
+  on('fs.list', (_$, e) =>
+    e.path.endsWith('openspec/changes')
+      ? { value: [{ name: 'add-dark-mode', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }] }
+      : {
+          value: [
+            { name: 'tasks.md', kind: 'file', size: 10, mtimeMs: 2, isLink: false },
+            { name: 'specs', kind: 'dir', size: 0, mtimeMs: 0, isLink: false },
+          ],
+        },
+  )
+  on('fs.read', () => ({ value: TASKS }))
+  on('skill.prompt', (_$, e) => ({ text: e.text }))
+  on('session.measure', (_$, e) => ({ changed: e.changed }))
+  on('clock.now', () => ({ value: 0 }))
+  let n = 0
+  on('agent.spawn', () => ({ model: 'haiku', agentId: `a${(n += 1)}` }))
+  let release = () => {}
+  let started = () => {}
+  const held = new Promise<void>(resolve => (release = resolve))
+  const running = new Promise<void>(resolve => (started = resolve))
+  on('tool.call', async () => {
+    started()
+    await held
+    return { result: 'ok' }
+  })
+
+  await $.skill.prompt({ skill: 'openspec-apply-change', text: '' })
+  await $.session.measure({
+    context: { tokens: 84000, window: 200000, percent: 42 },
+    rateLimits: [
+      { kind: 'five_hour', percentUsed: 23 },
+      { kind: 'seven_day', percentUsed: 8 },
+    ],
+    cost: { usd: 1.5 },
+    changed: ['context'],
+  })
+
+  const ui = await $.ui.mount({ ...at(35), surface: 'terminal' })
+  const desktop = await $.ui.mount({ ...at(35), surface: 'desktop' })
+  expect(await rowCount(ui)).toBe(8)
+  expect(await rowCount(desktop)).toBe(8)
+
+  for (const description of ['Scan', 'Check specs']) {
+    await $.agent.spawn({
+      tool_use_id: description,
+      prompt: 'look',
+      description,
+      subagentType: 'Explore',
+      provider: { plugin: 'engine', tier: 'core' },
+      parentModel: 'opus',
+      background: false,
+      fork: false,
+    })
+  }
+  const call = $.tool.call({ tool: 'mcp__github__get_me', tool_use_id: 'm1' } as never)
+  await running
+
+  expect(await rowCount(ui)).toBeLessThanOrEqual(10)
+  expect(await rowCount(desktop)).toBeLessThanOrEqual(10)
+  expect(await ui.find({ type: 'Text', text: /\+1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /7d/ })).toBeDefined()
+
+  release()
+  await call
+  await ui.unmount()
+  await desktop.unmount()
 })

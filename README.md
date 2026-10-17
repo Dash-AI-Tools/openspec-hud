@@ -21,16 +21,16 @@ A Claude Code mod that shows an [OpenSpec](https://github.com/Fission-AI/OpenSpe
 
 *Inline bar above the prompt (classic UI or narrow terminal).*
 
-The HUD is a side panel docked to the right of the transcript, laid out top to bottom. Sections with nothing to show (no tasks, no running agent or MCP call) are left out.
+The HUD is a side panel docked to the right of the transcript, laid out top to bottom with no headings, in at most 10 rows (typically 8). Rows with nothing to show (no tasks, no running agent or MCP call) are left out.
 
 **Docking needs the fullscreen terminal UI** at 110+ columns: set `"tui": "fullscreen"` in `~/.claude/settings.json` (or pick it in `/config`). In the classic UI, or a narrower terminal, the panel opens inline above the prompt instead. Drag the panel edge to resize it; it opens 42 columns wide.
 
 - **Skill / step**: the last OpenSpec skill (`openspec-*`) or command (`/opsx:*`, `/openspec-*`) used, mapped to the flow step. Without one, the step is inferred from the change's files (no `tasks.md` → propose, open tasks → apply, all done → verify).
 - **Change**: the change named in the last `/opsx:<cmd> <change>`, else the most recently edited change under `openspec/changes/` (excluding `archive`).
 - **Tasks**: current and next unchecked `- [ ]` items in `tasks.md`, done/total and remaining. Refreshes after edits under `openspec/`, at each turn end and every 10s.
-- **Agents**: subagents currently running, with type, status and task description.
-- **MCP**: the MCP server and tool currently being called (e.g. `github · get_me`), shown only while a call is running.
-- **Context / usage**: context-window bar, tokens used/window, rate-limit windows (5h, 7d) on subscriptions, and session cost.
+- **Agents**: one row for the running subagent (type, status, task description), with `+N` when more are running.
+- **MCP**: the MCP server and tool currently being called (e.g. `github · get_me`), shown on one row (`+N` for more) only while a call is running.
+- **Context / usage**: context-window bar, tokens used/window, rate-limit windows (5h, 7d) on one row on subscriptions, and session cost.
 
 Each kind of info has its own theme color: change name, current flow step (yellow), skill, task counts (done green, remaining yellow), current/next task, agent type and status, MCP server and tool, and context/rate-limit levels (green under 60%, yellow under 85%, red above). Colors follow the active Claude Code theme.
 
