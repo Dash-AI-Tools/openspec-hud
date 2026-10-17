@@ -20,9 +20,11 @@ import {
 const skillA = atom({ plugin: 'openspec-hud', key: 'skill' } as const, null)
 const stepA = atom({ plugin: 'openspec-hud', key: 'step' } as const, null)
 const changeA = atom({ plugin: 'openspec-hud', key: 'change' } as const, null)
+const changesA = atom({ plugin: 'openspec-hud', key: 'changes' } as const, [])
 const agentsA = atom({ plugin: 'openspec-hud', key: 'agents' } as const, [])
 const mcpA = atom({ plugin: 'openspec-hud', key: 'mcpCalls' } as const, [])
 const usageA = atom({ plugin: 'openspec-hud', key: 'usage' } as const, null)
+const changesShownA = atom({ plugin: 'openspec-hud', key: 'changesShown' } as const, false)
 const hiddenA = atom({ plugin: 'openspec-hud', key: 'isHidden' } as const, false)
 
 const CHANGES = 'openspec/changes'
@@ -30,6 +32,8 @@ const CHANGES = 'openspec/changes'
 /** One theme color per kind of info, so each reads apart at a glance. */
 const PANE = 'openspec-hud'
 const PANE_ARGS = { id: PANE, title: 'OpenSpec', columns: 42 } as const
+const CHANGES_PANE = 'openspec-changes'
+const CHANGES_PANE_ARGS = { id: CHANGES_PANE, title: 'Changes', columns: 42 } as const
 
 const C = {
   change: 'suggestion',
@@ -65,12 +69,12 @@ let preferred: string | undefined
 let tick = 0
 
 async function scanChange($: EngineInterface): Promise<void> {
-  let found: ChangeProgress | null = null
+  let found: ChangeProgress[] = []
   try {
     const dirs = (await $.fs.list(CHANGES)).filter(
       d => d.kind === 'dir' && d.name !== 'archive',
     )
-    let best: { c: ChangeProgress; at: number } | null = null
+    const scored: { c: ChangeProgress; at: number }[] = []
     for (const dir of dirs) {
       const base = `${CHANGES}/${dir.name}`
       const files = await $.fs.list(base)
@@ -91,13 +95,14 @@ async function scanChange($: EngineInterface): Promise<void> {
         dir.name === preferred
           ? Number.MAX_SAFE_INTEGER
           : Math.max(0, ...files.map(f => f.mtimeMs))
-      if (!best || at > best.at) best = { c, at }
+      scored.push({ c, at })
     }
-    found = best?.c ?? null
+    found = scored.sort((a, b) => b.at - a.at).map(s => s.c)
   } catch {
-    found = null
+    found = []
   }
-  await update($, changeA, () => found)
+  await update($, changesA, () => found)
+  await update($, changeA, () => found[0] ?? null)
 }
 
 async function refreshAgents($: EngineInterface): Promise<void> {
@@ -139,8 +144,13 @@ export const register: Register = on => {
       name: 'openspec-hud',
       description: 'Show or hide the OpenSpec HUD side panel',
     })
+    await $.command.register({
+      name: 'openspec-changes',
+      description: 'Show or hide the OpenSpec changes overview panel',
+    })
     const ran = await next(e)
     if (!(await read($, hiddenA))) void $.ui.open(PANE_ARGS)
+    if (await read($, changesShownA)) void $.ui.open(CHANGES_PANE_ARGS).catch(() => undefined)
     await Promise.all([scanChange($), measure($).catch(() => undefined)])
     $.clock.every(2000, () => {
       tick += 1
@@ -160,6 +170,27 @@ export const register: Register = on => {
   })
 
   // Closing the panel by hand keeps it closed until /openspec-hud opens it again.
+  on('command.run', { command: 'openspec-changes' }, async $ => {
+    const shown = await update($, changesShownA, v => !v)
+    try {
+      if (shown) await $.ui.open(CHANGES_PANE_ARGS)
+      else await $.ui.close({ id: CHANGES_PANE })
+    } catch {
+      await update($, changesShownA, () => false)
+
+      return { text: 'Could not open the OpenSpec changes panel.' }
+    }
+
+    return { text: shown ? 'OpenSpec changes panel shown.' : 'OpenSpec changes panel hidden.' }
+  })
+
+  on('ui.close', { id: CHANGES_PANE }, async ($, e, next) => {
+    const ran = await next(e)
+    if (e.origin.kind === 'person') await update($, changesShownA, () => false)
+
+    return ran
+  })
+
   on('ui.close', { id: PANE }, async ($, e, next) => {
     const ran = await next(e)
     if (e.origin.kind === 'person') await update($, hiddenA, () => true)
@@ -422,6 +453,67 @@ export const register: Register = on => {
           : undefined
       rows.push(...pair('usage', tokensCell, limitsCell))
     }
+
+    return (
+      <Box flexDirection="column" paddingX={1}>
+        {rows}
+      </Box>
+    )
+  })
+
+  on('ui.render', { component: 'Pane', requestId: CHANGES_PANE }, async ($, e) => {
+    const changes = await read($, changesA)
+    const { Box, Text } = $.ui.resolve(e)
+    const width = Math.max(16, e.props.bodyColumns)
+    const inner = width - 2
+
+    const line = (key: string, body: RenderChildren) => (
+      <Text key={key} wrap="truncate-end">{body}</Text>
+    )
+    const rows: RenderChildren[] = []
+
+    if (changes.length === 0) rows.push(line('none', <Text color={C.muted}>no active changes</Text>))
+
+    changes.forEach((c, i) => {
+      const name = (
+        <Text>
+          {i === 0 ? <Text bold color={C.stepNow}>▶ </Text> : <Text>{'  '}</Text>}
+          <Text bold color={C.change}>{c.name}</Text>
+        </Text>
+      )
+      if (!c.hasTasks || c.total === 0) {
+        const state = 'no tasks yet'
+        if (fitsSideBySide(2 + c.name.length, state.length, inner)) {
+          rows.push(line(c.name, <Text>{name}{'  '}<Text color={C.muted}>{state}</Text></Text>))
+        } else {
+          rows.push(line(c.name, name), line(`${c.name}-state`, <Text color={C.muted}>{`  ${state}`}</Text>))
+        }
+        return
+      }
+      const left = c.total - c.done
+      const tail = left === 0 ? ' done' : ` ${c.done}/${c.total} · ${left} left`
+      rows.push(
+        line(c.name, name),
+        line(
+          `${c.name}-tasks`,
+          <Text>
+            <Text>{'  '}</Text>
+            <Text color={C.done}>{bar((c.done / c.total) * 100, Math.max(8, inner - 2 - tail.length))}</Text>
+            {left === 0 ? (
+              <Text bold color={C.done}>{tail}</Text>
+            ) : (
+              <Text>
+                <Text bold color={C.done}>{` ${c.done}`}</Text>
+                <Text color={C.sep}>/</Text>
+                <Text color={C.total}>{c.total}</Text>
+                <Text color={C.sep}> · </Text>
+                <Text bold color={C.remaining}>{left} left</Text>
+              </Text>
+            )}
+          </Text>,
+        ),
+      )
+    })
 
     return (
       <Box flexDirection="column" paddingX={1}>

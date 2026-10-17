@@ -36,6 +36,8 @@ Each kind of info has its own theme color: change name, current flow step (yello
 
 `/openspec-hud` opens or closes the panel. Closing it with its close mark keeps it closed in later sessions until `/openspec-hud` opens it again.
 
+`/openspec-changes` opens or closes a second **Changes** panel that lists every active change (each folder under `openspec/changes/` except `archive`). Each entry shows a progress bar with `done/total · N left`, or `no tasks yet` without a `tasks.md`, or `done` when every task is checked. The change the HUD follows is listed first and marked `▶`; the others follow, most recently edited first. The list refreshes with the HUD. The panel starts closed, and closing it with its close mark keeps it closed until the command opens it again.
+
 ## Quick start
 
 1. Install the plugin (below).

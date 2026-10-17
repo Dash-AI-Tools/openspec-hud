@@ -230,3 +230,82 @@ test('body stays within 10 rows when fully populated and 8 when typical', async 
   await ui.unmount()
   await desktop.unmount()
 })
+
+const CHANGES_BAND = { ...BAND, requestId: 'openspec-changes', props: { ...BAND.props, title: 'Changes' } } as const
+const entry = (name: string, kind: 'dir' | 'file', mtimeMs = 1) => ({ name, kind, size: 10, mtimeMs, isLink: false })
+const ALL_DONE = '## 1. A\n- [x] 1.1 One\n- [x] 1.2 Two\n'
+
+type Fake = { changes: Record<string, { mtimeMs: number; tasks?: string }> }
+const fakeFs = (on: (name: 'fs.list' | 'fs.read', fn: (...a: never[]) => unknown) => void, fake: Fake) => {
+  on('fs.list', ((_$: unknown, e: { path: string }) => {
+    if (e.path.endsWith('openspec/changes')) {
+      return { value: [...Object.keys(fake.changes).map(n => entry(n, 'dir')), entry('archive', 'dir')] }
+    }
+    const name = e.path.split('/').pop() ?? ''
+    const c = fake.changes[name]
+    if (!c) return { value: [] }
+    return { value: [entry('proposal.md', 'file', c.mtimeMs), ...(c.tasks ? [entry('tasks.md', 'file', c.mtimeMs)] : [])] }
+  }) as never)
+  on('fs.read', ((_$: unknown, e: { path: string }) => ({ value: fake.changes[e.path.split('/').slice(-2)[0] ?? '']?.tasks ?? '' })) as never)
+}
+
+test('command toggles the Changes panel without touching the HUD pane', async ($, on) => {
+  const opened: string[] = []
+  const closed: string[] = []
+  on('ui.open', (_$, e) => (opened.push(e.id), { value: undefined }))
+  on('ui.close', (_$, e) => (closed.push(e.id), { value: undefined }))
+  const run = () => ($.command as any).run({ command: 'openspec-changes' })
+
+  expect((await run()).text).toBe('OpenSpec changes panel shown.')
+  expect((await run()).text).toBe('OpenSpec changes panel hidden.')
+  expect(opened).toEqual(['openspec-changes'])
+  expect(closed).toEqual(['openspec-changes'])
+})
+
+test('Changes panel lists active changes with progress, states and the followed change first', async ($, on) => {
+  const fake: Fake = {
+    changes: {
+      'add-auth': { mtimeMs: 5, tasks: TASKS },
+      'fix-bar': { mtimeMs: 9 },
+      'ship-it': { mtimeMs: 7, tasks: ALL_DONE },
+    },
+  }
+  fakeFs(on as never, fake)
+  on('skill.prompt', (_$, e) => ({ text: e.text }))
+  await $.skill.prompt({ skill: 'openspec-apply-change', text: '' })
+
+  const ui = await $.ui.mount({ ...CHANGES_BAND, surface: 'terminal' })
+  const names = (await ui.findAll({ type: 'Text' }))
+    .filter(t => /^(add-auth|fix-bar|ship-it)$/.test(t.text ?? ''))
+    .map(t => t.text)
+  expect(names).toEqual(['fix-bar', 'ship-it', 'add-auth'])
+  expect(await ui.find({ type: 'Text', text: /^▶ $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /no tasks yet/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /3 left/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /^ done$/ }))?.props.color).toBe('success')
+  expect(await ui.find({ type: 'Text', text: /archive/ })).toBeUndefined()
+  await ui.unmount()
+
+  const hud = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await hud.find({ type: 'Text', text: /^fix-bar$/ })).toBeDefined()
+  await hud.unmount()
+})
+
+test('Changes panel shows an empty state and refreshes counts with the scan', async ($, on) => {
+  const fake: Fake = { changes: {} }
+  fakeFs(on as never, fake)
+  on('skill.prompt', (_$, e) => ({ text: e.text }))
+  await $.skill.prompt({ skill: 'openspec-apply-change', text: '' })
+  const ui = await $.ui.mount({ ...CHANGES_BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /no active changes/ })).toBeDefined()
+
+  fake.changes['add-auth'] = { mtimeMs: 5, tasks: TASKS }
+  await $.skill.prompt({ skill: 'openspec-apply-change', text: '' })
+  expect(await ui.find({ type: 'Text', text: /3 left/ })).toBeDefined()
+
+  fake.changes['add-auth'] = { mtimeMs: 6, tasks: TASKS.replace('- [ ] 2.1', '- [x] 2.1') }
+  await $.skill.prompt({ skill: 'openspec-apply-change', text: '' })
+  expect(await ui.find({ type: 'Text', text: /2 left/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /3 left/ })).toBeUndefined()
+  await ui.unmount()
+})

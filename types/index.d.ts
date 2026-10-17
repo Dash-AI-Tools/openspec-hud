@@ -48,6 +48,8 @@ declare module 'claude-code' {
       skill: string | null
       step: FlowStep | null
       change: ChangeProgress | null
+      changes: ChangeProgress[]
+      changesShown: boolean
       agents: AgentRun[]
       mcpCalls: McpCall[]
       usage: UsageInfo | null
