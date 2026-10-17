@@ -5,5 +5,15 @@
   "types": "./types/index.d.ts",
   "author": {
     "name": "davidcp90"
-  }
+  },
+  "homepage": "https://github.com/Dash-AI-Tools/openspec-hud",
+  "repository": "https://github.com/Dash-AI-Tools/openspec-hud",
+  "license": "MIT",
+  "keywords": [
+    "openspec",
+    "hud",
+    "claude-code",
+    "statusline",
+    "workflow"
+  ]
 }
