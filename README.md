@@ -59,6 +59,12 @@
 | `/openspec-hud` | Opens or closes the HUD panel. Closing it with its close mark keeps it closed in later sessions until the command opens it again. |
 | `/openspec-changes` | Opens or closes the **Changes** panel. It starts closed, and a close with its close mark sticks until the command reopens it. |
 
+<p align="center">
+  <img src="images/changes.png" alt="The Changes panel listing every active change with progress and tasks left" width="420">
+</p>
+
+<p align="center"><i>The Changes panel docks as a tab next to the HUD.</i></p>
+
 ## How it reads your project
 
 - **Skill / step**: the last OpenSpec skill (`openspec-*`) or command (`/opsx:*`, `/openspec-*`) used, mapped to the flow step. Without one: no `tasks.md` → propose, open tasks → apply, all done → verify.
